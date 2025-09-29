@@ -87,4 +87,6 @@ And in the html template you would use it like this:
 ---
 <br>
 
+This project is tested with BrowserStack. [Check BrowserStack here.](https://www.browserstack.com/).
+
 <a href="https://www.buymeacoffee.com/pr0dt0s"><img src="https://img.buymeacoffee.com/button-api/?text=Buy me a coffee&emoji=&slug=pr0dt0s&button_colour=5F7FFF&font_colour=ffffff&font_family=Poppins&outline_colour=000000&coffee_colour=FFDD00" /></a>
