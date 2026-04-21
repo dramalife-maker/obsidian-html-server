@@ -4,6 +4,7 @@ import { CustomMarkdownRenderer } from 'plugin/markdownRenderer/customMarkdownRe
 import mime from 'mime-types';
 import { ReplaceableVariables } from 'plugin/settings/settings';
 import { App, TFile } from 'obsidian';
+import { ensureTrailingSlash, joinBaseUrl, normalizeBaseUrl } from './urlUtils';
 
 export const contentResolver = async (
   path: string,
@@ -12,6 +13,11 @@ export const contentResolver = async (
   markdownRenderer: CustomMarkdownRenderer,
   extraVars: ReplaceableVariables[] = []
 ) => {
+  const normalizedFrontendBase = normalizeBaseUrl(plugin.settings.frontendBaseUrl) || normalizeBaseUrl(plugin.settings.backendBaseUrl);
+  const normalizedBackendBase = normalizeBaseUrl(plugin.settings.backendBaseUrl) || normalizedFrontendBase;
+  const baseHref = ensureTrailingSlash(normalizedFrontendBase || '/');
+  const effectiveCssFileUrl = getEffectiveCssFileUrl(plugin, normalizedFrontendBase);
+
   if (path == INTERNAL_CSS_ENPOINT) {
     const fullCssText =
       Array.from(document.styleSheets)
@@ -37,6 +43,7 @@ export const contentResolver = async (
   <title>#VAR{HTML_TITLE}</title>
   <link rel="shortcut icon" href="#VAR{FAVICON_URL}">
   <link href="#VAR{CSS_FILE_URL}" type="text/css" rel="stylesheet">
+  <base href="#VAR{BASE_HREF}">
 </head>
 <body
   class="#VAR{THEME_MODE} mod-windows is-frameless is-maximized is-hidden-frameless obsidian-app show-inline-title show-view-header"
@@ -70,7 +77,7 @@ export const contentResolver = async (
                                 <div class="setting-item-control">
                                 <input placeholder="Password" id="password" type="password" name="password" spellcheck="false">
                                 </div>
-                                <input style="display: none;" id="redirectUrl" type="text" name="redirectUrl" spellcheck="false">
+                                <input style="display: none;" id="redirectUrl" type="text" name="redirectUrl" spellcheck="false" value="#VAR{REDIRECT_URL}">
                                 <br>
                                 <span class="settings-error-element" hidden id="error"></span>
                                 <div class="html-form-button">
@@ -111,10 +118,10 @@ export const contentResolver = async (
             error.hidden = false;
           }
         };
-        xhttp.open("POST", "/login", true);
+        xhttp.open("POST", "#VAR{LOGIN_POST_URL}", true);
         xhttp.setRequestHeader('Content-type', 'application/x-www-form-urlencoded');
         
-        xhttp.send(\`username=\${encodeURIComponent(username)}&password=\${encodeURIComponent(password)}\`);
+        xhttp.send(\`username=\${encodeURIComponent(username)}&password=\${encodeURIComponent(password)}&redirectUrl=\${encodeURIComponent(redirectUrl.value || '/')}\`);
       }
       catch (err){
         error.innerText = 'Something went wrong.';
@@ -136,13 +143,29 @@ export const contentResolver = async (
             ? 'theme-dark'
             : 'theme-light',
         },
+        {
+          varName: 'BASE_HREF',
+          varValue: baseHref,
+        },
+        {
+          varName: 'LOGIN_POST_URL',
+          varValue: joinBaseUrl(normalizedBackendBase, '/login'),
+        },
         ...plugin.settings.htmlReplaceableVariables,
+        ...(effectiveCssFileUrl
+          ? ([
+              {
+                varName: 'CSS_FILE_URL',
+                varValue: effectiveCssFileUrl,
+              },
+            ] as ReplaceableVariables[])
+          : []),
         ...extraVars,
       ]
     );
 
     return {
-      contentType: 'text/css',
+      contentType: 'text/html; charset=UTF-8',
       payload: loginForm,
     };
   }
@@ -173,10 +196,30 @@ export const contentResolver = async (
               : 'theme-light',
           },
           {
+            varName: 'BASE_HREF',
+            varValue: baseHref,
+          },
+          {
+            varName: 'FRONTEND_BASE_URL',
+            varValue: normalizedFrontendBase,
+          },
+          {
+            varName: 'BACKEND_BASE_URL',
+            varValue: normalizedBackendBase,
+          },
+          {
             varName: 'RENDERED_CONTENT',
             varValue: renderedMarkdown,
           },
           ...plugin.settings.htmlReplaceableVariables,
+          ...(effectiveCssFileUrl
+            ? ([
+                {
+                  varName: 'CSS_FILE_URL',
+                  varValue: effectiveCssFileUrl,
+                },
+              ] as ReplaceableVariables[])
+            : []),
           ...frontmatterVariables,
         ]
       ),
@@ -240,4 +283,17 @@ function parseHtmlVariables(
       }
       return output;
     });
+}
+
+function getEffectiveCssFileUrl(plugin: HtmlServerPlugin, normalizedFrontendBase: string) {
+  const configured = plugin.settings.htmlReplaceableVariables.find((v) => v.varName === 'CSS_FILE_URL')?.varValue ?? '';
+
+  // Only auto-prefix the default values. If the user explicitly changed it, respect the custom value.
+  const isDefaultValue =
+    configured === '' ||
+    configured === '/.obsidian/plugins/obsidian-http-server/app.css' ||
+    configured === '.obsidian/plugins/obsidian-http-server/app.css';
+
+  if (!isDefaultValue) return '';
+  return joinBaseUrl(normalizedFrontendBase, INTERNAL_CSS_ENPOINT);
 }

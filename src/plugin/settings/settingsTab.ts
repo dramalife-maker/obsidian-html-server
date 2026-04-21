@@ -226,6 +226,48 @@ export class HtmlServerPluginSettingsTab extends PluginSettingTab {
       });
     });
 
+    const frontendBaseUrlDescription = new DocumentFragment();
+    frontendBaseUrlDescription
+      .createDiv()
+      .setText(
+        'Public base URL used for links rendered to the browser (useful behind Nginx reverse proxy).'
+      );
+    frontendBaseUrlDescription
+      .createDiv()
+      .setText('Examples: "" (default), "/obsidian", "https://example.com/obsidian"');
+
+    new Setting(advancedSettings)
+      .setName('Frontend Base URL')
+      .setDesc(frontendBaseUrlDescription)
+      .addText((cb) => {
+        cb.setValue(this.plugin.settings.frontendBaseUrl || '');
+        cb.onChange(async (value) => {
+          this.plugin.settings.frontendBaseUrl = value?.trim?.() ?? value;
+          await this.saveAndReload();
+        });
+      });
+
+    const backendBaseUrlDescription = new DocumentFragment();
+    backendBaseUrlDescription
+      .createDiv()
+      .setText(
+        'Base URL used by browser-side requests back to this server (e.g. login POST). Usually same as Frontend Base URL.'
+      );
+    backendBaseUrlDescription
+      .createDiv()
+      .setText('Examples: "" (default), "/obsidian", "https://example.com/obsidian"');
+
+    new Setting(advancedSettings)
+      .setName('Backend Base URL')
+      .setDesc(backendBaseUrlDescription)
+      .addText((cb) => {
+        cb.setValue(this.plugin.settings.backendBaseUrl || '');
+        cb.onChange(async (value) => {
+          this.plugin.settings.backendBaseUrl = value?.trim?.() ?? value;
+          await this.saveAndReload();
+        });
+      });
+
     /* const _htmlSettingItem =  */ new Setting(advancedSettings)
       .setName('Custom index.html file.')
       .addExtraButton((cb) => {

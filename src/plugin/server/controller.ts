@@ -10,6 +10,7 @@ import { Strategy as LocalStrategy } from 'passport-local';
 import { randomBytes } from 'crypto';
 import { INTERNAL_LOGIN_ENPOINT, tryResolveFilePath } from './pathResolver';
 import { contentResolver } from './contentResolver';
+import { hasSchemeUrl, joinBaseUrl, normalizeBaseUrl, tryGetForwardedPrefix } from './urlUtils';
 
 export class ServerController {
   app: express.Application;
@@ -18,6 +19,22 @@ export class ServerController {
 
   constructor(private plugin: HtmlServerPlugin) {
     this.app = express();
+    // Respect X-Forwarded-* headers when served behind a reverse proxy.
+    this.app.set('trust proxy', true);
+
+    // Support reverse proxies that keep the URL prefix when proxying.
+    // If backendBaseUrl is configured as a path prefix (e.g. "/obsidian"), we accept requests both with and without it.
+    const backendPrefix = normalizeBaseUrl(this.plugin.settings.backendBaseUrl);
+    if (backendPrefix && !hasSchemeUrl(backendPrefix)) {
+      this.app.use((req, _res, next) => {
+        if (req.url === backendPrefix) {
+          req.url = '/';
+        } else if (req.url.startsWith(backendPrefix + '/')) {
+          req.url = req.url.slice(backendPrefix.length) || '/';
+        }
+        next();
+      });
+    }
 
     this.app.use(expressSession({ secret: randomBytes(16).toString('base64') }));
     this.app.use(passport.initialize());
@@ -46,7 +63,8 @@ export class ServerController {
     this.app.use(express.urlencoded());
 
     this.app.post('/login', passport.authenticate('local', {}), (req, res) => {
-      res.redirect(req.body.redirectUrl || '/');
+      const target = typeof req.body?.redirectUrl === 'string' && req.body.redirectUrl ? req.body.redirectUrl : '/';
+      res.redirect(target);
     });
 
     this.app.use('/', this.authenticateIfNeeded, async (req, res) => {
@@ -66,7 +84,7 @@ export class ServerController {
       }
 
       if (!('/' + resolvedPath === path || resolvedPath === path)) {
-        res.redirect('/' + resolvedPath);
+        res.redirect(toPublicUrl(req, '/' + resolvedPath, this.plugin));
         res.end();
         return;
       }
@@ -141,7 +159,7 @@ export class ServerController {
     const content = await contentResolver(INTERNAL_LOGIN_ENPOINT, '/', this.plugin, this.markdownRenderer, [
       {
         varName: 'REDIRECT_URL',
-        varValue: req.url,
+        varValue: toPublicUrl(req, req.url || '/', this.plugin),
       },
       {
         varName: 'NONCE',
@@ -157,4 +175,11 @@ const getResolveFromPath = (req: Request) => {
   const url = new URL(req.headers?.referer || 'http://localhost/');
   const fromPath = decodeURIComponent(url.pathname || '/');
   return fromPath.substring(1);
+};
+
+const toPublicUrl = (req: Request, path: string, plugin: HtmlServerPlugin) => {
+  const configured = normalizeBaseUrl(plugin.settings.frontendBaseUrl) || normalizeBaseUrl(plugin.settings.backendBaseUrl);
+  const forwardedPrefix = normalizeBaseUrl(tryGetForwardedPrefix(req.headers as unknown as Record<string, unknown>));
+  const base = configured || forwardedPrefix;
+  return joinBaseUrl(base, path);
 };

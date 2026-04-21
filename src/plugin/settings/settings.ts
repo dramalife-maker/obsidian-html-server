@@ -6,6 +6,19 @@ export type PluginSettings = {
   port: number;
   defaultFile: string;
   hostname: string;
+  /**
+   * Public-facing base URL for links rendered to the browser (useful when served behind a reverse proxy).
+   * Examples:
+   * - "" (default): use root-relative URLs (current behavior)
+   * - "/obsidian": served behind a proxy prefix
+   * - "https://example.com/obsidian": full public URL
+   */
+  frontendBaseUrl: string;
+  /**
+   * Base URL used by browser-side requests back to this server (e.g. /login).
+   * Usually same as frontendBaseUrl. Kept separate for proxy setups where browser-accessible origin differs.
+   */
+  backendBaseUrl: string;
   startOnLoad: boolean;
   useRibbonButons: boolean;
   indexHtml: string;
@@ -20,6 +33,8 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   port: 8080,
   hostname: '0.0.0.0',
   defaultFile: '',
+  frontendBaseUrl: '',
+  backendBaseUrl: '',
   startOnLoad: false,
   useRibbonButons: true,
   indexHtml: `<html>
@@ -30,7 +45,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   <title>#VAR{HTML_TITLE}</title>
   <link rel="shortcut icon" href="#VAR{FAVICON_URL}">
   <link href="#VAR{CSS_FILE_URL}" type="text/css" rel="stylesheet">
-  <base href="/">
+  <base href="#VAR{BASE_HREF}">
 </head>
 <body
   class="#VAR{THEME_MODE} mod-windows is-frameless is-maximized is-hidden-frameless obsidian-app show-inline-title show-view-header"
@@ -80,7 +95,8 @@ export const DEFAULT_SETTINGS: PluginSettings = {
     },
     {
       varName: 'CSS_FILE_URL',
-      varValue: '/.obsidian/plugins/obsidian-http-server/app.css',
+      // Relative on purpose so it works behind a proxy prefix when BASE_HREF is set.
+      varValue: '.obsidian/plugins/obsidian-http-server/app.css',
     },
   ],
   showAdvancedOptions: false,

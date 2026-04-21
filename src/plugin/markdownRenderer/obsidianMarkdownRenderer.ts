@@ -7,6 +7,7 @@ import {
 import HtmlServerPlugin from 'plugin/main';
 import { CustomMarkdownRenderer } from './customMarkdownRenderer';
 import { MarkdownPreviewView } from 'obsidian';
+import { joinBaseUrl, normalizeBaseUrl } from 'plugin/server/urlUtils';
 
 export class ObsidianMarkdownRenderer extends CustomMarkdownRenderer {
   rootElement: HTMLDivElement;
@@ -138,10 +139,30 @@ export class ObsidianMarkdownRenderer extends CustomMarkdownRenderer {
   }
 
   private postProcess(el: Element) {
+    const frontendBase = normalizeBaseUrl(this.plugin.settings.frontendBaseUrl) || normalizeBaseUrl(this.plugin.settings.backendBaseUrl);
+
     const links = el.querySelectorAll<HTMLAnchorElement>('a.internal-link');
 
     links.forEach((link) => {
       link.target = '';
+
+      const href = link.getAttribute('href') || '';
+      if (!href || href.startsWith('#')) return;
+
+      // Normalize Obsidian's internal links to be root-relative so they do not depend on <base href>
+      // and do not break when clicking from nested paths.
+      const normalizedHref =
+        href.startsWith('/') || /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(href)
+          ? href
+          : '/' + href.replace(/^\.\/+/, '');
+
+      if (!frontendBase) {
+        if (normalizedHref !== href) link.setAttribute('href', normalizedHref);
+        return;
+      }
+
+      // When served behind a proxy prefix, convert to prefixed absolute path/URL.
+      link.setAttribute('href', joinBaseUrl(frontendBase, normalizedHref));
     });
 
     const embeds = el.querySelectorAll<HTMLSpanElement>(
@@ -162,7 +183,16 @@ export class ObsidianMarkdownRenderer extends CustomMarkdownRenderer {
     imagesContainers.forEach((imageContainer) => {
       const src = imageContainer.getAttribute('src') || '';
       const imageElement = imageContainer.querySelector('img');
-      if (imageElement) imageElement.src = src;
+      if (imageElement) {
+        const normalizedSrc =
+          src.startsWith('/') || /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(src)
+            ? src
+            : '/' + src.replace(/^\.\/+/, '');
+
+        imageElement.src = frontendBase
+          ? joinBaseUrl(frontendBase, normalizedSrc)
+          : normalizedSrc;
+      }
     });
 
     // const callouts = el.querySelectorAll('.callout');
