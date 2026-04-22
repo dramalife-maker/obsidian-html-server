@@ -11,6 +11,7 @@ import { randomBytes } from 'crypto';
 import { INTERNAL_LOGIN_ENPOINT, tryResolveFilePath } from './pathResolver';
 import { contentResolver } from './contentResolver';
 import { hasSchemeUrl, joinBaseUrl, normalizeBaseUrl, tryGetForwardedPrefix } from './urlUtils';
+import { TFolder } from 'obsidian';
 
 export class ServerController {
   app: express.Application;
@@ -65,6 +66,17 @@ export class ServerController {
     this.app.post('/login', passport.authenticate('local', {}), (req, res) => {
       const target = typeof req.body?.redirectUrl === 'string' && req.body.redirectUrl ? req.body.redirectUrl : '/';
       res.redirect(target);
+    });
+
+    this.app.get('/api/tree', this.authenticateIfNeeded, async (_req, res) => {
+      try {
+        const root = this.plugin.app.vault.getRoot();
+        const tree = buildVaultTree(root);
+        res.json(tree);
+      } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Failed to build vault tree' });
+      }
     });
 
     this.app.use('/', this.authenticateIfNeeded, async (req, res) => {
@@ -183,3 +195,46 @@ const toPublicUrl = (req: Request, path: string, plugin: HtmlServerPlugin) => {
   const base = configured || forwardedPrefix;
   return joinBaseUrl(base, path);
 };
+
+type VaultTreeNode =
+  | { type: 'folder'; name: string; path: string; children: VaultTreeNode[] }
+  | { type: 'file'; name: string; path: string; extension: string };
+
+function buildVaultTree(root: TFolder): VaultTreeNode {
+  const walk = (folder: TFolder): VaultTreeNode => {
+    const children: VaultTreeNode[] = [];
+
+    folder.children.forEach((child) => {
+      if (child instanceof TFolder) {
+        children.push(walk(child));
+        return;
+      }
+      // Only include markdown files for navigation.
+      // @ts-ignore - TAbstractFile typing in obsidian is not always discriminated.
+      if (typeof (child as any).extension === 'string' && (child as any).extension === 'md') {
+        const file: any = child;
+        children.push({
+          type: 'file',
+          name: file.basename ?? file.name ?? file.path,
+          path: file.path,
+          extension: file.extension,
+        });
+      }
+    });
+
+    // Folders first, then files; both alphabetical.
+    children.sort((a, b) => {
+      if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
+      return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+    });
+
+    return {
+      type: 'folder',
+      name: folder.name || '/',
+      path: folder.path || '',
+      children,
+    };
+  };
+
+  return walk(root);
+}

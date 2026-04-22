@@ -18,6 +18,14 @@ export class ObsidianMarkdownRenderer extends CustomMarkdownRenderer {
     this.rootElement = this.getOrCreateRootDomElement();
   }
 
+  private slugifyHeading(text: string) {
+    return text
+      .trim()
+      .toLowerCase()
+      .replace(/[\s]+/g, '-')
+      .replace(/[^\p{L}\p{N}\-_.]/gu, '');
+  }
+
   private patchObisianMarkdownRenderer() {
     const originalQueueRenderFn = MarkdownPreviewRenderer.prototype.queueRender;
 
@@ -140,6 +148,27 @@ export class ObsidianMarkdownRenderer extends CustomMarkdownRenderer {
 
   private postProcess(el: Element) {
     const frontendBase = normalizeBaseUrl(this.plugin.settings.frontendBaseUrl) || normalizeBaseUrl(this.plugin.settings.backendBaseUrl);
+
+    // Ensure headings have stable ids so the frontend can build an outline and deep links work.
+    const headingIdCounts = new Map<string, number>();
+    const headings = el.querySelectorAll<HTMLHeadingElement>(
+      'h1, h2, h3, h4, h5, h6'
+    );
+    headings.forEach((h) => {
+      const existing = h.getAttribute('id');
+      if (existing) {
+        headingIdCounts.set(existing, (headingIdCounts.get(existing) ?? 0) + 1);
+        return;
+      }
+
+      const base =
+        this.slugifyHeading(h.textContent || '') ||
+        `heading-${h.tagName.toLowerCase()}`;
+      const count = headingIdCounts.get(base) ?? 0;
+      const id = count === 0 ? base : `${base}-${count + 1}`;
+      headingIdCounts.set(base, count + 1);
+      h.setAttribute('id', id);
+    });
 
     const links = el.querySelectorAll<HTMLAnchorElement>('a.internal-link');
 
